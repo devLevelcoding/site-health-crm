@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id        Int       @id @default(autoincrement())
+  name      String
+  website   String
+  phone     String?
+  email     String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  scans     LighthouseScan[]
+  reminders ScanReminder[]
+
+  @@map("clients")
+}
+
+// Ported field-for-field from Audit Magnet CRM (#11)'s LighthouseScan
+// (itself ported from leadMarketing's lib/scanner.ts) — clientId instead of
+// leadId, otherwise identical. Not unique on clientId — one row per scan
+// over time, "the Lighthouse score becomes a tracked metric" is literally
+// this history.
+model LighthouseScan {
+  id        Int      @id @default(autoincrement())
+  clientId  Int
+  url       String
+  scannedAt DateTime @default(now())
+
+  https     Boolean @default(false)
+  hsts      Boolean @default(false)
+  xfo       Boolean @default(false)
+  csp       Boolean @default(false)
+  xcto      Boolean @default(false)
+  xssHeader Boolean @default(false)
+  secScore  Int     @default(0)
+
+  hasTitle     Boolean @default(false)
+  hasMeta      Boolean @default(false)
+  hasH1        Boolean @default(false)
+  hasCanonical Boolean @default(false)
+  hasOg        Boolean @default(false)
+  hasRobots    Boolean @default(false)
+  hasSitemap   Boolean @default(false)
+  seoScore     Int     @default(0)
+
+  hasGa        Boolean @default(false)
+  hasGtm       Boolean @default(false)
+  hasFbPixel   Boolean @default(false)
+  hasLinkedIn  Boolean @default(false)
+  hasSchemaOrg Boolean @default(false)
+  hasHotjar    Boolean @default(false)
+  semScore     Int     @default(0)
+
+  statusCode Int?
+  error      String?
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@map("lighthouse_scans")
+}
+
+// The recurring machinery — deliberately NOT shaped like Patient CRM's
+// CareReminder (#07), even though that's this catalog's established
+// recurring-drip precedent. There, firing a reminder only sends a
+// notification and does NOT reschedule the next one, because only a real
+// vet visit (a human, real-world action) knows the true next due date. Here
+// there's no such ambiguity — a site re-scan is fully deterministic — so
+// `process-due` performs the scan itself AND reschedules the next reminder
+// in one action, same as a cron job would, just manually triggered (no cron
+// infrastructure anywhere in this catalog, same honesty as everywhere else).
+model ScanReminder {
+  id        Int       @id @default(autoincrement())
+  clientId  Int
+  dueAt     DateTime
+  status    String    @default("pending") // pending | done
+  createdAt DateTime  @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("scan_reminders")
+}
+
+// New — not in either source. Singleton (id fixed at 1): how often to
+// re-scan ("re-scanned monthly" from the catalog pitch, made configurable).
+model MonitorSettings {
+  id           Int      @id @default(1)
+  intervalDays Int      @default(30)
+  updatedAt    DateTime @updatedAt
+
+  @@map("monitor_settings")
+}
